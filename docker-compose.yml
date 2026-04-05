@@ -1,0 +1,91 @@
+services:
+  whisper:
+    build: .
+    # Alternatively, pull a pre-built image:
+    # image: ghcr.io/rickytwarner/whisper-docker:latest
+
+    volumes:
+      # -----------------------------------------------------------------------
+      # REQUIRED: point this at your media library on the host.
+      #
+      # Linux / macOS:
+      #   - /mnt/media:/media
+      #   - /home/you/Videos:/media
+      #
+      # Windows (Docker Desktop):
+      #   - C:\Users\You\Videos:/media
+      #   - C:/Users/You/Videos:/media    # forward slashes also work
+      # -----------------------------------------------------------------------
+      - /path/to/your/media:/media
+
+      # Persists downloaded Whisper models between runs (~1.5 GB for "medium")
+      - whisper_models:/root/.cache/whisper
+
+    environment:
+      # Subdirectories of /media to scan (space-separated).
+      # "." scans the entire mount — change to e.g. "movies tv shows" to limit scope.
+      SCAN_DIRS: "."
+
+      # Operating mode:
+      #   watch — initial batch pass, then reacts instantly when new files appear
+      #           via inotify. Recommended for Linux/macOS home theater setups.
+      #
+      #           ⚠ Windows users: inotify events do not reliably propagate from
+      #           Windows host volumes into Docker containers via WSL2. Use
+      #           MODE=batch with Windows Task Scheduler instead (see README).
+      #
+      #   batch — single scan and exit. Pair with an external cron job,
+      #           systemd timer, or Windows Task Scheduler for periodic runs.
+      MODE: "watch"
+
+      # Subtitle strategy:
+      #   smart      — if an existing subtitle in the target language is found
+      #                (embedded track or external .srt/.ass), extract its text
+      #                and use Whisper to align the timing. Falls back to full
+      #                transcription if nothing usable is found. Typically
+      #                5-10x faster than transcribing when subtitles exist.
+      #   transcribe — always run full speech recognition regardless of what
+      #                subtitle files already exist.
+      SUBTITLE_STRATEGY: "smart"
+
+      # Language(s) to generate subtitles for (comma-separated Whisper codes).
+      # Each language produces its own .{lang}.whisper.srt alongside the video.
+      # Common codes: en, ja, fr, de, es, zh, ko, pt
+      # Examples: "en"  |  "en,fr"  |  "ja,en"
+      WHISPER_LANGS: "en"
+
+      # Whisper model size: tiny | base | small | medium | large | large-v2
+      # Larger = better quality but slower and more VRAM.
+      # See README for the full trade-off table.
+      STABLE_MODEL: "medium"
+
+      # Optional: uncomment to persist logs to a file inside the container.
+      # Mount a host directory over /logs if you want to read them on the host.
+      # LOG_FILE: "/logs/whisper.log"
+
+    # -------------------------------------------------------------------------
+    # GPU acceleration (recommended — significantly faster than CPU).
+    #
+    # Linux: install nvidia-container-toolkit
+    #   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    #
+    # Windows: enable GPU support in Docker Desktop → Settings → Resources → GPU
+    #   Requires WSL2 backend and an up-to-date NVIDIA driver.
+    #
+    # To run on CPU only, comment out or remove the entire `deploy` block below.
+    # PyTorch falls back to CPU automatically — no rebuild required.
+    # -------------------------------------------------------------------------
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Keep the watcher alive; Docker restarts it if it crashes or the host reboots.
+    # Change to "no" if you prefer to trigger runs manually.
+    restart: unless-stopped
+
+volumes:
+  whisper_models:
